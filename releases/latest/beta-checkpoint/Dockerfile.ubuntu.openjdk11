@@ -1,0 +1,227 @@
+FROM ubuntu:21.10
+
+ARG LIBERTY_VERSION=22.0.0.2-beta
+ARG LIBERTY_SHA=d5efb53c4f412eefed2c68b870d0fcd725fde6a8
+ARG LIBERTY_BUILD_LABEL=cl22.0.0.1920-1900
+ARG LIBERTY_DOWNLOAD_URL=https://repo1.maven.org/maven2/io/openliberty/beta/openliberty-runtime/$LIBERTY_VERSION/openliberty-runtime-$LIBERTY_VERSION.zip
+ARG LIBERTY_LICENSE_URL=https://raw.githubusercontent.com/OpenLiberty/open-liberty/master/LICENSE
+ARG LIBERTY_LICENSE_SHA=84f00503d6516c91190de866e78d6010899673b7
+ARG OPENJ9_SCC=true
+ARG VERBOSE=false
+
+LABEL org.opencontainers.image.authors="Arthur De Magalhaes, Chris Potter, Leo Christy Jesuraj" \
+      org.opencontainers.image.vendor="Open Liberty" \
+      org.opencontainers.image.url="https://openliberty.io/" \
+      org.opencontainers.image.source="https://github.com/OpenLiberty/ci.docker" \
+      org.opencontainers.image.revision="$LIBERTY_BUILD_LABEL" \
+      org.opencontainers.image.description="This image contains the Open Liberty beta runtime with IBM Semeru Runtime Open Edition OpenJDK 11 with OpenJ9 and Ubuntu as the base OS.  For more information on this image please see https://github.com/OpenLiberty/ci.docker#building-an-application-image" \
+      org.opencontainers.image.title="Open Liberty Beta" \
+      org.opencontainers.image.version="$LIBERTY_VERSION"
+
+# First compile criu required for checkpoint
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       ca-certificates \
+       build-essential asciidoc git vim \
+       libprotobuf-dev libprotobuf-c-dev protobuf-c-compiler protobuf-compiler python3-protobuf \
+       libbsd-dev libnftables-dev libcap-dev libnl-3-dev libnet-dev \
+       pkg-config xmlto python3-distutils libcap2-bin \
+    && cd /tmp \
+    && git clone https://github.com/ymanton/criu.git \
+    && cd criu \
+    && git reset --hard 83cefe446f5cdf890543ac0aa1490e141400ff70 \
+    && make PREFIX=/usr install \
+    && cd / \
+    && rm -rf /tmp/criu \
+    && setcap cap_checkpoint_restore,cap_net_admin=eip /usr/sbin/criu \
+    && apt-get autoremove -y \
+       ca-certificates \
+       build-essential asciidoc git vim \
+       libprotobuf-dev libprotobuf-c-dev protobuf-c-compiler protobuf-compiler python3-protobuf \
+       libbsd-dev libnftables-dev libcap-dev libnl-3-dev libnet-dev \
+       pkg-config xmlto python3-distutils libcap2-bin \
+       libc-dev-bin libc6-dev libgpm2 \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       dumb-init \
+       libprotobuf23 libprotobuf-c1 python3-protobuf \
+       libbsd0 libnftables1 libnl-3-200 libnet1 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
+
+# TODO set the java version correctly
+ENV JAVA_VERSION jdk-11.0.15-ea+6
+
+# Requirements to install Java
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata curl ca-certificates fontconfig locales \
+    && echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
+    && locale-gen en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -u 1001 -r -g 0 -s /usr/sbin/nologin default 
+
+# TODO set the URLs for each arch
+ RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "${ARCH}" in \
+       aarch64|arm64) \
+         ESUM='junk'; \
+         BINARY_URL='junk'; \
+         ;; \
+       ppc64el|ppc64le) \
+         ESUM='junk'; \
+         BINARY_URL='junk'; \
+         ;; \
+       s390x) \
+         ESUM='junk'; \
+         BINARY_URL='junk'; \
+         ;; \
+       amd64|x86_64) \
+         ESUM='1e39c950be234978e9687318b5a3e1ff26fdb2445b5de73fc8df0653adac5b9d'; \
+         BINARY_URL='https://openj9-artifactory.osuosl.org/artifactory/ci-openj9/Build_JDK11_x86-64_linux_criu_Nightly/2/OpenJ9-JDK11-x86-64_linux_criu-20220412-215426.tar.gz'; \
+         ;; \
+       *) \
+         echo "Unsupported arch: ${ARCH}"; \
+         exit 1; \
+         ;; \
+    esac; \
+    curl -LfsSo /tmp/openjdk.tar.xz ${BINARY_URL}; \
+    echo "${ESUM} */tmp/openjdk.tar.xz" | sha256sum -c -; \
+# TODO temporary to create jre until EA build is available
+    mkdir /tmp/jdk-extract; \
+    cd /tmp/jdk-extract; \
+    tar -xf /tmp/openjdk.tar.xz --strip-components=1; \
+    ./bin/jlink --no-header-files --no-man-pages --compress=2 --add-modules java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.se,java.security.jgss,java.security.sasl,java.smartcardio,java.sql,java.sql.rowset,java.transaction.xa,java.xml,java.xml.crypto,jdk.accessibility,jdk.attach,jdk.charsets,jdk.compiler,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.dynalink,jdk.editpad,jdk.httpserver,jdk.internal.ed,jdk.internal.jvmstat,jdk.internal.le,jdk.internal.opt,jdk.jartool,jdk.javadoc,jdk.jcmd,jdk.jconsole,jdk.jdeps,jdk.jdi,jdk.jdwp.agent,jdk.jlink,jdk.jshell,jdk.jsobject,jdk.localedata,jdk.management,jdk.management.agent,jdk.naming.dns,jdk.naming.ldap,jdk.naming.rmi,jdk.net,jdk.pack,jdk.rmic,jdk.scripting.nashorn,jdk.scripting.nashorn.shell,jdk.sctp,jdk.security.auth,jdk.security.jgss,jdk.unsupported,jdk.unsupported.desktop,jdk.xml.dom,jdk.zipfs,openj9.criu,openj9.cuda,openj9.dataaccess,openj9.dtfj,openj9.dtfjview,openj9.gpu,openj9.jvm,openj9.sharedclasses,openj9.traceformat,openj9.zosconditionhandling --output /opt/java/openjdk; \
+    rm -rf /tmp/jdk-extract; \
+#    mkdir -p /opt/java/openjdk; \
+#    cd /opt/java/openjdk; \
+#    tar -xf /tmp/openjdk.tar.xz --strip-components=1; \
+    rm -rf /tmp/openjdk.tar.xz;
+
+ENV JAVA_HOME=/opt/java/openjdk \
+    PATH="/opt/java/openjdk/bin:$PATH"
+ENV JAVA_TOOL_OPTIONS="-XX:+IgnoreUnrecognizedVMOptions -XX:+IdleTuningGcOnIdle -Xshareclasses:name=openj9_system_scc,cacheDir=/opt/java/.scc,readonly,nonFatal"
+
+RUN set -eux; \
+    unset OPENJ9_JAVA_OPTIONS; \
+    SCC_SIZE="50m"; \
+    DOWNLOAD_PATH_TOMCAT=/tmp/tomcat; \
+    INSTALL_PATH_TOMCAT=/opt/tomcat-home; \
+    TOMCAT_CHECKSUM="0db27185d9fc3174f2c670f814df3dda8a008b89d1a38a5d96cbbe119767ebfb1cf0bce956b27954aee9be19c4a7b91f2579d967932207976322033a86075f98"; \
+    TOMCAT_DWNLD_URL="https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.35/bin/apache-tomcat-9.0.35.tar.gz"; \
+    \
+    mkdir -p "${DOWNLOAD_PATH_TOMCAT}" "${INSTALL_PATH_TOMCAT}"; \
+    curl -LfsSo "${DOWNLOAD_PATH_TOMCAT}"/tomcat.tar.gz "${TOMCAT_DWNLD_URL}"; \
+    echo "${TOMCAT_CHECKSUM} *${DOWNLOAD_PATH_TOMCAT}/tomcat.tar.gz" | sha512sum -c -; \
+    tar -xf "${DOWNLOAD_PATH_TOMCAT}"/tomcat.tar.gz -C "${INSTALL_PATH_TOMCAT}" --strip-components=1; \
+    rm -rf "${DOWNLOAD_PATH_TOMCAT}"; \
+    \
+    java -Xshareclasses:name=dry_run_scc,cacheDir=/opt/java/.scc,bootClassesOnly,nonFatal,createLayer -Xscmx$SCC_SIZE -version; \
+    export OPENJ9_JAVA_OPTIONS="-Xshareclasses:name=dry_run_scc,cacheDir=/opt/java/.scc,bootClassesOnly,nonFatal"; \
+    "${INSTALL_PATH_TOMCAT}"/bin/startup.sh; \
+    sleep 5; \
+    "${INSTALL_PATH_TOMCAT}"/bin/shutdown.sh -force; \
+    sleep 15; \
+    FULL=$( (java -Xshareclasses:name=dry_run_scc,cacheDir=/opt/java/.scc,printallStats 2>&1 || true) | awk '/^Cache is [0-9.]*% .*full/ {print substr($3, 1, length($3)-1)}'); \
+    DST_CACHE=$(java -Xshareclasses:name=dry_run_scc,cacheDir=/opt/java/.scc,destroy 2>&1 || true); \
+    SCC_SIZE=$(echo $SCC_SIZE | sed 's/.$//'); \
+    SCC_SIZE=$(awk "BEGIN {print int($SCC_SIZE * $FULL / 100.0)}"); \
+    [ "${SCC_SIZE}" -eq 0 ] && SCC_SIZE=1; \
+    SCC_SIZE="${SCC_SIZE}m"; \
+    java -Xshareclasses:name=openj9_system_scc,cacheDir=/opt/java/.scc,bootClassesOnly,nonFatal,createLayer -Xscmx$SCC_SIZE -version; \
+    unset OPENJ9_JAVA_OPTIONS; \
+    \
+    export OPENJ9_JAVA_OPTIONS="-Xshareclasses:name=openj9_system_scc,cacheDir=/opt/java/.scc,bootClassesOnly,nonFatal"; \
+    "${INSTALL_PATH_TOMCAT}"/bin/startup.sh; \
+    sleep 5; \
+    "${INSTALL_PATH_TOMCAT}"/bin/shutdown.sh -force; \
+    sleep 5; \
+    FULL=$( (java -Xshareclasses:name=openj9_system_scc,cacheDir=/opt/java/.scc,printallStats 2>&1 || true) | awk '/^Cache is [0-9.]*% .*full/ {print substr($3, 1, length($3)-1)}'); \
+    echo "SCC layer is $FULL% full."; \
+    rm -rf "${INSTALL_PATH_TOMCAT}"; \
+    if [ -d "/opt/java/.scc" ]; then \
+          chmod -R 0777 /opt/java/.scc; \
+    fi; \
+    \
+    echo "SCC generation phase completed";
+
+# Install Open Liberty
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends unzip openssl wget; \
+    wget -q https://public.dhe.ibm.com/ibmdl/export/pub/software/openliberty/runtime/nightly/2022-05-02_1100/openliberty-all-22.0.0.6-cl220620220502-1100.zip -U UA-Open-Liberty-Docker -O /tmp/wlp.zip; \
+    echo "9240ab63738c4f67612408219d0de18ff8a55ca0e6ca4bbc07ee65e52e4b8a4b */tmp/wlp.zip" | sha256sum -c -; \
+    unzip -q /tmp/wlp.zip -d /opt/ol; \
+    rm /tmp/wlp.zip; \
+    mkdir -p /licenses; \
+    wget -q $LIBERTY_LICENSE_URL -O /licenses/LICENSE; \
+    echo "$LIBERTY_LICENSE_SHA /licenses/LICENSE" | sha1sum -c --strict --check; \
+    apt-get remove -y unzip; \
+    apt-get remove -y wget; \
+    rm -rf /var/lib/apt/lists/*; \
+    chown -R 1001:0 /opt/ol/wlp; \
+    chmod -R g+rw /opt/ol/wlp;
+
+
+COPY helpers /opt/ol/helpers
+COPY fixes/ /opt/ol/fixes/
+
+# Set Path Shortcuts
+ENV PATH=/opt/ol/wlp/bin:/opt/ol/docker/:/opt/ol/helpers/build:$PATH \
+    LOG_DIR=/logs \
+    WLP_OUTPUT_DIR=/opt/ol/wlp/output \
+    WLP_SKIP_MAXPERMSIZE=true \
+    OPENJ9_SCC=$OPENJ9_SCC \
+    WLP_IN_CONTAINER=true
+
+
+# Configure Open Liberty
+RUN /opt/ol/wlp/bin/server create --template=javaee8 \
+    && rm -rf $WLP_OUTPUT_DIR/.classCache /output/workarea
+
+# Create symlinks && set permissions for non-root user
+RUN mkdir /logs \
+    && mkdir -p /opt/ol/wlp/usr/shared/resources/lib.index.cache \
+    && ln -s /opt/ol/wlp/usr/shared/resources/lib.index.cache /lib.index.cache \
+    && mkdir -p $WLP_OUTPUT_DIR/defaultServer \
+    && ln -s $WLP_OUTPUT_DIR/defaultServer /output \
+    && ln -s /opt/ol/wlp/usr/servers/defaultServer /config \
+    && mkdir -p /config/configDropins/defaults \
+    && mkdir -p /config/configDropins/overrides \
+    && mkdir -p /config/dropins \
+    && mkdir -p /config/apps \
+    && ln -s /opt/ol/wlp /liberty \
+    && chown -R 1001:0 /config \
+    && chmod -R g+rw /config \
+    && chown -R 1001:0 /logs \
+    && chmod -R g+rw /logs \
+    && chown -R 1001:0 /opt/ol/wlp/usr \
+    && chmod -R g+rw /opt/ol/wlp/usr \
+    && chown -R 1001:0 /opt/ol/wlp/output \
+    && chmod -R g+rw /opt/ol/wlp/output \
+    && chown -R 1001:0 /opt/ol/helpers \
+    && chmod -R g+rw /opt/ol/helpers \
+    && chown -R 1001:0 /opt/ol/fixes \
+    && chmod -R g+rwx /opt/ol/fixes \
+    && mkdir /etc/wlp \
+    && chown -R 1001:0 /etc/wlp \
+    && chmod -R g+rw /etc/wlp \
+    && echo "<server description=\"Default Server\"><httpEndpoint id=\"defaultHttpEndpoint\" host=\"*\" /></server>" > /config/configDropins/defaults/open-default-port.xml
+
+# Create a new SCC layer
+RUN if [ "$OPENJ9_SCC" = "true" ]; then populate_scc.sh; fi \
+    && rm -rf /output/messaging /output/resources/security /logs/* $WLP_OUTPUT_DIR/.classCache \
+    && chown -R 1001:0 /opt/ol/wlp/output \
+    && chmod -R g+rwx /opt/ol/wlp/output
+
+#These settings are needed so that we can run as a different user than 1001 after server warmup
+ENV RANDFILE=/tmp/.rnd \
+    OPENJ9_JAVA_OPTIONS="-XX:+IgnoreUnrecognizedVMOptions -XX:+IdleTuningGcOnIdle -Xshareclasses:name=openj9_system_scc,cacheDir=/opt/java/.scc,readonly,nonFatal -Dosgi.checkConfiguration=false"
+
+USER 1001
+
+EXPOSE 9080 9443
+
+ENTRYPOINT ["/opt/ol/helpers/runtime/docker-server.sh"]
+CMD ["/opt/ol/wlp/bin/server", "run", "defaultServer"]
+
