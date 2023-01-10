@@ -13,6 +13,9 @@ rc=$?
 if [ $rc -ne 0 ] && [ -f "/logs/checkpoint/checkpoint.log" ]; then
     echo "Checkpoint failed. The following is the checkpoint.log from CRIU ..."
     cat /logs/checkpoint/checkpoint.log
+else
+    chmod -R g+rw /logs/checkpoint
+    chmod -R g+rw /output/workarea/checkpoint
 fi
 
 exit $rc

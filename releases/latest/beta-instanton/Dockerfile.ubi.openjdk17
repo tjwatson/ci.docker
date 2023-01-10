@@ -23,7 +23,7 @@ RUN set -eu; \
 # Semeru dependencies
        tzdata openssl curl ca-certificates fontconfig glibc-langpack-en tar; \
     dnf clean all; \
-    useradd -u 1001 -r -g 0 -s /usr/sbin/nologin default;
+    useradd -u 1001 -r -g 0 -s /usr/bin/bash default;
 
 RUN set -eu; \
     CRIU_DIR_URL=https://public.dhe.ibm.com/ibmdl/export/pub/software/openliberty/runtime/criu-build/b3; \
@@ -130,6 +130,9 @@ RUN mkdir /logs \
     && ln -s /opt/ol/wlp/usr/shared/resources/lib.index.cache /lib.index.cache \
     && mkdir -p $WLP_OUTPUT_DIR/defaultServer \
     && ln -s $WLP_OUTPUT_DIR/defaultServer /output \
+    && mkdir -p /output/workarea/checkpoint \
+    && chown -R 1001:0 /output \
+    && chmod -R g+rw /output \
     && ln -s /opt/ol/wlp/usr/servers/defaultServer /config \
     && mkdir -p /config/configDropins/defaults \
     && mkdir -p /config/configDropins/overrides \
@@ -160,6 +163,9 @@ RUN if [ ! -d "/opt/java/.scc" ]; then mkdir /opt/java/.scc; chmod -R 0777 /opt/
     && rm -rf /output/messaging /output/resources/security /logs/* $WLP_OUTPUT_DIR/.classCache \
     && chown -R 1001:0 /opt/ol/wlp/output \
     && chmod -R g+rwx /opt/ol/wlp/output
+
+# Allow 0 group to su to user 1001
+COPY etc_pam.d_su /etc/pam.d/su
 
 #These settings are needed so that we can run as a different user than 1001 after server warmup
 ENV RANDFILE=/tmp/.rnd \
