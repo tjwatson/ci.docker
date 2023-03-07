@@ -18,6 +18,7 @@ LABEL org.opencontainers.image.authors="Chris Potter, Leo Christy Jesuraj, Melis
       summary="Image for Open Liberty with IBM Semeru Runtime Open Edition OpenJDK with OpenJ9 and UBI 8" \
       description="This image contains the Open Liberty runtime with IBM Semeru Runtime Open Edition OpenJDK with OpenJ9 and Red Hat UBI 8 as the base OS.  For more information on this image please see https://github.com/OpenLiberty/ci.docker#building-an-application-image"
 
+COPY NOTICES /opt/NOTICES
 COPY helpers /opt/ol/helpers
 COPY fixes/ /opt/ol/fixes/
 
@@ -32,6 +33,8 @@ RUN yum -y install shadow-utils wget unzip openssl \
     && rm /tmp/wlp.zip.sha1 \
     && mkdir -p /licenses \
     && cp /opt/ol/wlp/LICENSE /licenses/ \
+    && wget -O /usr/bin/dumb-init https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_x86_64 \
+    && chmod +x /usr/bin/dumb-init \
     && adduser -u 1001 -r -g root -s /usr/sbin/nologin default \
     && yum -y remove shadow-utils wget unzip \
     && yum clean all \
@@ -47,8 +50,8 @@ ENV PATH=$PATH:/opt/ol/wlp/bin:/opt/ol/helpers/build \
 
 # Configure Open Liberty
 RUN /opt/ol/wlp/bin/server create \
-    && rm -rf $WLP_OUTPUT_DIR/.classCache /output/workarea
-
+    && rm -rf $WLP_OUTPUT_DIR/.classCache /output/workarea \
+    && rm -rf /opt/ol/wlp/usr/servers/defaultServer/server.env
 
 # Create symlinks && set permissions for non-root user
 RUN mkdir /logs \
